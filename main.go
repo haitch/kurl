@@ -43,7 +43,7 @@ func main() {
 	serviceURL := args[0]
 
 	// Parse the URL and extract service information
-	namespace, serviceName, servicePort, err := parseKubernetesServiceURL(serviceURL)
+	res, err := parseKubernetesServiceURL(serviceURL)
 	if err != nil {
 		fmt.Printf("Error parsing service URL: %v\n", err)
 		os.Exit(1)
@@ -56,7 +56,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Setting up port-forward from local port %d to %s/%s:%d\n", localPort, namespace, serviceName, servicePort)
+	fmt.Printf("Setting up port-forward from local port %d to %s\n", localPort, res.String())
 
 	// Create channels for port-forward control
 	stopCh := make(chan struct{}, 1)
@@ -64,7 +64,7 @@ func main() {
 
 	// Start port-forward in a goroutine
 	go func() {
-		err := runPortForward(serviceName, namespace, servicePort, localPort, stopCh, readyCh)
+		err := runPortForward(res, localPort, stopCh, readyCh)
 		if err != nil {
 			fmt.Printf("Error in port-forward: %v\n", err)
 			os.Exit(1)
@@ -76,9 +76,12 @@ func main() {
 	fmt.Printf("Port-forward established. Forwarding to localhost:%d\n", localPort)
 
 	// Construct the local URL for the HTTP request
-	localURL := strings.Replace(serviceURL, fmt.Sprintf("%s.%s.svc", serviceName, namespace), "localhost", 1)
-	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace), "localhost", 1)
-	localURL = strings.Replace(localURL, fmt.Sprintf(":%d", servicePort), fmt.Sprintf(":%d", localPort), 1)
+	localURL := strings.Replace(serviceURL, fmt.Sprintf("%s.%s.svc", res.name, res.namespace), "localhost", 1)
+	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.svc.cluster.local", res.name, res.namespace), "localhost", 1)
+	localURL = strings.Replace(serviceURL, fmt.Sprintf("%s.%s.pod", res.name, res.namespace), "localhost", 1)
+	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.pod.cluster.local", res.name, res.namespace), "localhost", 1)
+	localURL = strings.Replace(localURL, fmt.Sprintf(":%d", res.port), fmt.Sprintf(":%d", localPort), 1)
+	fmt.Printf("curl against local url: %s", localURL)
 
 	// Set request method to HEAD if --head flag is used
 	if *onlyHeaders {
@@ -86,7 +89,7 @@ func main() {
 	}
 
 	// Make the HTTP request using the curl module
-	err = makeHTTPRequest(localURL, *method, *headers, *data, *dataAscii, *dataBinary, 
+	err = makeHTTPRequest(localURL, *method, *headers, *data, *dataAscii, *dataBinary,
 		*form, *verbose, *insecure, *user, *timeout, *followRedirects, *maxRedirects,
 		*userAgent, *include, *onlyHeaders, *output)
 	if err != nil {
