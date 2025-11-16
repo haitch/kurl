@@ -58,13 +58,21 @@ func main() {
 
 	fmt.Printf("Setting up port-forward from local port %d to %s\n", localPort, res.String())
 
+	// Convert resource to ForwardTarget for port forwarding
+	forwardTarget := &ForwardTarget{
+		Name:      res.name,
+		Namespace: res.namespace,
+		Kind:      res.kind,
+		Port:      res.port,
+	}
+
 	// Create channels for port-forward control
 	stopCh := make(chan struct{}, 1)
 	readyCh := make(chan struct{}, 1)
 
 	// Start port-forward in a goroutine
 	go func() {
-		err := runPortForward(res, localPort, stopCh, readyCh)
+		err := runPortForward(forwardTarget, localPort, stopCh, readyCh)
 		if err != nil {
 			fmt.Printf("Error in port-forward: %v\n", err)
 			os.Exit(1)
@@ -78,7 +86,7 @@ func main() {
 	// Construct the local URL for the HTTP request
 	localURL := strings.Replace(serviceURL, fmt.Sprintf("%s.%s.svc", res.name, res.namespace), "localhost", 1)
 	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.svc.cluster.local", res.name, res.namespace), "localhost", 1)
-	localURL = strings.Replace(serviceURL, fmt.Sprintf("%s.%s.pod", res.name, res.namespace), "localhost", 1)
+	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.pod", res.name, res.namespace), "localhost", 1)
 	localURL = strings.Replace(localURL, fmt.Sprintf("%s.%s.pod.cluster.local", res.name, res.namespace), "localhost", 1)
 	localURL = strings.Replace(localURL, fmt.Sprintf(":%d", res.port), fmt.Sprintf(":%d", localPort), 1)
 	fmt.Printf("curl against local url: %s", localURL)

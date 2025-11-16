@@ -11,20 +11,20 @@ import (
 )
 
 // makeHTTPRequest handles the actual HTTP request with all the specified options
-func makeHTTPRequest(url string, method string, headers []string, data string, dataAscii string, dataBinary string, 
+func makeHTTPRequest(url string, method string, headers []string, data string, dataAscii string, dataBinary string,
 	form []string, verbose bool, insecure bool, user string, timeout int, followRedirects bool, maxRedirects int,
 	userAgent string, includeHeaders bool, onlyHeaders bool, output string) error {
-	
+
 	// Determine request body
 	var requestBody io.Reader
 	if data != "" {
 		requestBody = strings.NewReader(data)
 	} else if dataAscii != "" {
-		requestBody = strings.NewReader(dataAscii)  // Same as -d for ASCII data
+		requestBody = strings.NewReader(dataAscii) // Same as -d for ASCII data
 	} else if dataBinary != "" {
-		requestBody = strings.NewReader(dataBinary)  // Same as -d for binary data (as string)
+		requestBody = strings.NewReader(dataBinary) // Same as -d for binary data (as string)
 	}
-	
+
 	// Handle form data
 	if len(form) > 0 {
 		// Simple implementation: join form data with &
@@ -36,7 +36,7 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 		// Add content-type for form data
 		headers = append(headers, "Content-Type: application/x-www-form-urlencoded")
 	}
-	
+
 	// Create the HTTP request
 	req, err := http.NewRequest(method, url, requestBody)
 	if err != nil {
@@ -50,7 +50,7 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 			req.Header.Add(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 		}
 	}
-	
+
 	// Add Authorization header if user is specified
 	if user != "" {
 		parts := strings.SplitN(user, ":", 2)
@@ -64,7 +64,7 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 		}
 		req.SetBasicAuth(username, password)
 	}
-	
+
 	// Add User-Agent header if specified
 	if userAgent != "" {
 		req.Header.Set("User-Agent", userAgent)
@@ -75,7 +75,7 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 		fmt.Printf("Making request: %s %s\n", method, url)
 		fmt.Printf("Headers: %v\n", req.Header)
 		if requestBody != nil {
-			// Note: Reading the request body for verbose output might alter it, 
+			// Note: Reading the request body for verbose output might alter it,
 			// so we just indicate that a body was provided
 			fmt.Printf("Request body provided\n")
 		}
@@ -83,19 +83,19 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 
 	// Create HTTP client
 	client := &http.Client{}
-	
+
 	// Configure insecure SSL if requested
 	if insecure {
 		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 	}
-	
+
 	// Configure timeout if specified
 	if timeout > 0 {
 		client.Timeout = time.Duration(timeout) * time.Second
 	}
-	
+
 	// Configure redirect behavior
 	if !followRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -136,7 +136,7 @@ func makeHTTPRequest(url string, method string, headers []string, data string, d
 			}
 		}
 		if includeHeaders {
-			fmt.Fprintf(outputWriter, "\r\n")  // Add empty line between headers and body
+			fmt.Fprintf(outputWriter, "\r\n") // Add empty line between headers and body
 		}
 	}
 
