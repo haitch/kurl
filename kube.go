@@ -296,7 +296,7 @@ func runPortForward(res *ForwardTarget, localPort int, stopCh <-chan struct{}, r
 	// If the resource is a service, find a pod that matches the service's selector
 	target := res
 
-	if res.Kind == resourceTypeSvc {
+	if res.Kind != resourceTypePod {
 		updatedTarget, err := findTargetForService(clientset, res)
 		if err != nil {
 			return err
@@ -328,7 +328,6 @@ func runPortForward(res *ForwardTarget, localPort int, stopCh <-chan struct{}, r
 	}
 	url := restClient.Post().Resource(string(target.Kind)).Namespace(target.Namespace).Name(target.Name).SubResource("portforward").URL()
 
-	fmt.Println(url)
 	// Create the dialer for the port-forward using SPDY
 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, url)
 
