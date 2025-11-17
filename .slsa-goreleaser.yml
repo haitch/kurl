@@ -1,0 +1,3 @@
+version: 1
+env:
+  - GO111MODULE=on
