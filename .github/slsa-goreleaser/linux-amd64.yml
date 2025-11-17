@@ -3,3 +3,4 @@ env:
   - GO111MODULE=on
 goos: linux
 goarch: amd64
+binary: kurl-{{ .Os }}-{{ .Arch }}
