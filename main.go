@@ -5,44 +5,41 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
-
-	"github.com/spf13/pflag"
 )
 
 func main() {
-	// Define command-line flags using pflag
-	method := pflag.StringP("request", "X", "GET", "HTTP method to use (GET, POST, PUT, DELETE, etc.)")
-	headers := pflag.StringArrayP("header", "H", []string{}, "HTTP headers to send with the request")
-	data := pflag.StringP("data", "d", "", "Data to send in the request body")
-	dataAscii := pflag.StringP("data-ascii", "", "", "HTTP POST data (same as -d, but only ASCII characters)")
-	dataBinary := pflag.StringP("data-binary", "", "", "HTTP POST data exactly as specified in the string")
-	form := pflag.StringArrayP("form", "F", []string{}, "Submit form data")
-	verbose := pflag.BoolP("verbose", "v", false, "Enable verbose output")
-	insecure := pflag.BoolP("insecure", "k", false, "Allow insecure SSL connections")
-	user := pflag.StringP("user", "u", "", "Server user and password")
-	timeout := pflag.IntP("max-time", "m", 0, "Maximum time in seconds allowed for the operation")
-	followRedirects := pflag.BoolP("location", "L", false, "Follow redirects")
-	maxRedirects := pflag.Int("max-redirs", -1, "Maximum number of redirects allowed (-1 for default)")
-	userAgent := pflag.StringP("user-agent", "A", "", "User-Agent header to send")
-	output := pflag.StringP("output", "o", "", "Write output to file instead of stdout")
-	include := pflag.BoolP("include", "i", false, "Include response headers in output")
-	onlyHeaders := pflag.BoolP("head", "I", false, "Fetch headers only (same as -X HEAD)")
+	// Parse command line arguments, identifying the URL (which should be the last non-flag argument)
+	// and separating flags that affect kurl's behavior from those that go to curl
+	args := os.Args[1:] // Skip the program name
 
-	// Parse flags
-	pflag.Parse()
-
-	// Get the URL (first non-flag argument)
-	args := pflag.Args()
 	if len(args) < 1 {
-		fmt.Println("Usage: kurl [options] <URL>")
-		fmt.Println("Options:")
-		pflag.PrintDefaults()
+		fmt.Println("Usage: kurl [curl options] <Kubernetes service URL>")
+		fmt.Println("Options will be passed through to curl when available")
 		fmt.Println("Example: kurl -X POST -H 'Content-Type: application/json' -d '{\"key\":\"value\"}' http://mysvc.mynamespace.svc:8080/api/resource")
 		os.Exit(1)
 	}
 
-	serviceURL := args[0]
+	// Identify the URL (last argument that looks like a URL)
+	serviceURL := ""
+	urlIndex := -1
+
+	// Look for the URL from the end of the arguments
+	for i := len(args) - 1; i >= 0; i-- {
+		arg := args[i]
+		if isURL(arg) {
+			serviceURL = arg
+			urlIndex = i
+			break
+		}
+	}
+
+	if serviceURL == "" {
+		fmt.Println("Error: No Kubernetes service URL found in arguments")
+		fmt.Println("URLs should follow the format: http://service.namespace.svc:port")
+		os.Exit(1)
+	}
 
 	// Parse the URL and extract service information
 	res, err := parseKubernetesServiceURL(serviceURL)
@@ -61,17 +58,36 @@ func main() {
 	// Check if curl is available
 	curlAvailable := isCurlAvailable()
 
+	// Determine if verbose mode is enabled by checking if -v or --verbose is in the args
+	verbose := containsFlag(args, "-v", "--verbose")
+
 	if curlAvailable {
 		// Use system curl with port-forward
-		runWithSystemCurl(res, localPort, serviceURL, method, headers, data, dataAscii, dataBinary,
-			form, verbose, insecure, user, timeout, followRedirects, maxRedirects,
-			userAgent, include, onlyHeaders, output)
+		runWithSystemCurlNew(res, localPort, serviceURL, args[:urlIndex], verbose)
 	} else {
 		// Fall back to current implementation
-		runWithCustomHTTP(res, localPort, serviceURL, method, headers, data, dataAscii, dataBinary,
-			form, verbose, insecure, user, timeout, followRedirects, maxRedirects,
-			userAgent, include, onlyHeaders, output)
+		runWithCustomHTTPNew(res, localPort, serviceURL, args[:urlIndex], verbose)
 	}
+}
+
+// isURL checks if a string looks like a URL
+func isURL(s string) bool {
+	// Simple check for URLs starting with http:// or https://
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// containsFlag checks if any of the provided arguments contains any of the specified flags
+func containsFlag(args []string, shortFlag string, longFlag string) bool {
+	for _, arg := range args {
+		if arg == shortFlag || arg == longFlag {
+			return true
+		}
+		// Check for flags with values like -H "header" or --header "header"
+		if strings.HasPrefix(arg, shortFlag+"=") || strings.HasPrefix(arg, longFlag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // isCurlAvailable checks if curl is installed on the system
@@ -80,12 +96,8 @@ func isCurlAvailable() bool {
 	return err == nil
 }
 
-// runWithSystemCurl executes the port forward and uses system curl to make the HTTP request
-func runWithSystemCurl(res *forwardTarget, localPort int, serviceURL string, method *string,
-	headers *[]string, data *string, dataAscii *string, dataBinary *string, form *[]string,
-	verbose *bool, insecure *bool, user *string, timeout *int, followRedirects *bool,
-	maxRedirects *int, userAgent *string, include *bool, onlyHeaders *bool, output *string) {
-
+// runWithSystemCurlNew executes the port forward and uses system curl with the original args
+func runWithSystemCurlNew(res *forwardTarget, localPort int, serviceURL string, originalArgs []string, verbose bool) {
 	// Convert resource to ForwardTarget for port forwarding
 	forwardTarget := &ForwardTarget{
 		Name:      res.name,
@@ -111,25 +123,18 @@ func runWithSystemCurl(res *forwardTarget, localPort int, serviceURL string, met
 	<-readyCh
 
 	// If verbose flag is passed, print which pod we are going to port forward and which local port
-	if *verbose {
+	if verbose {
 		fmt.Printf("Setting up port-forward from local port %d to %s\n", localPort, res.String())
 	}
 
 	// Construct the local URL for the HTTP request
 	localURL := reconstructURL(serviceURL, localPort)
 
-	// Set request method to HEAD if --head flag is used
-	if *onlyHeaders {
-		*method = "HEAD"
-	}
-
-	// Build the curl command
-	curlCmd := buildCurlCommand(localURL, *method, *headers, *data, *dataAscii, *dataBinary,
-		*form, *verbose, *insecure, *user, *timeout, *followRedirects, *maxRedirects,
-		*userAgent, *include, *onlyHeaders, *output)
+	// Build the curl command using the original args with the new local URL
+	curlCmd := buildCurlCommandFromArgs(originalArgs, localURL)
 
 	// If verbose flag is passed, print the actual raw curl command we invoked
-	if *verbose {
+	if verbose {
 		fmt.Printf("Executing curl command: %s\n", curlCmd)
 	}
 
@@ -150,12 +155,8 @@ func runWithSystemCurl(res *forwardTarget, localPort int, serviceURL string, met
 	close(stopCh)
 }
 
-// runWithCustomHTTP executes the port forward and uses custom HTTP client (fallback)
-func runWithCustomHTTP(res *forwardTarget, localPort int, serviceURL string, method *string,
-	headers *[]string, data *string, dataAscii *string, dataBinary *string, form *[]string,
-	verbose *bool, insecure *bool, user *string, timeout *int, followRedirects *bool,
-	maxRedirects *int, userAgent *string, include *bool, onlyHeaders *bool, output *string) {
-
+// runWithCustomHTTPNew executes the port forward and uses custom HTTP client with selected args only
+func runWithCustomHTTPNew(res *forwardTarget, localPort int, serviceURL string, originalArgs []string, verbose bool) {
 	// Convert resource to ForwardTarget for port forwarding
 	forwardTarget := &ForwardTarget{
 		Name:      res.name,
@@ -184,15 +185,23 @@ func runWithCustomHTTP(res *forwardTarget, localPort int, serviceURL string, met
 	// Construct the local URL for the HTTP request
 	localURL := reconstructURL(serviceURL, localPort)
 
-	// Set request method to HEAD if --head flag is used
-	if *onlyHeaders {
-		*method = "HEAD"
-	}
+	// Extract flags that affect HTTP request from original arguments for fallback HTTP client
+	method := extractMethod(originalArgs)
+	headers := extractHeaders(originalArgs)
+	data, dataAscii, dataBinary := extractData(originalArgs)
+	form := extractForm(originalArgs)
+	user := extractUser(originalArgs)
+	timeout := extractTimeout(originalArgs)
+	userAgent := extractUserAgent(originalArgs)
+	insecure := containsFlag(originalArgs, "-k", "--insecure")
+	followRedirects := containsFlag(originalArgs, "-L", "--location")
+	include := containsFlag(originalArgs, "-i", "--include")
+	onlyHeaders := containsFlag(originalArgs, "-I", "--head")
 
 	// Make the HTTP request using the custom HTTP module
-	err := makeHTTPRequest(localURL, *method, *headers, *data, *dataAscii, *dataBinary,
-		*form, *verbose, *insecure, *user, *timeout, *followRedirects, *maxRedirects,
-		*userAgent, *include, *onlyHeaders, *output)
+	err := makeHTTPRequest(localURL, method, headers, data, dataAscii, dataBinary,
+		form, verbose, insecure, user, timeout, followRedirects, -1, // maxRedirects not implemented for fallback
+		userAgent, include, onlyHeaders, "") // output to stdout, not file for fallback
 	if err != nil {
 		fmt.Printf("Error making HTTP request: %v\n", err)
 		close(stopCh)
@@ -203,91 +212,172 @@ func runWithCustomHTTP(res *forwardTarget, localPort int, serviceURL string, met
 	close(stopCh)
 }
 
-// buildCurlCommand constructs the curl command with all the specified options
-func buildCurlCommand(url string, method string, headers []string, data string, dataAscii string, dataBinary string,
-	form []string, verbose bool, insecure bool, user string, timeout int, followRedirects bool, maxRedirects int,
-	userAgent string, includeHeaders bool, onlyHeaders bool, output string) string {
-
+// buildCurlCommandFromArgs builds a curl command from original arguments, replacing the URL
+func buildCurlCommandFromArgs(originalArgs []string, newURL string) string {
+	// Start with the curl command
 	args := []string{"curl"}
 
-	// Add method
-	if method != "GET" {
-		args = append(args, "-X", shellEscape(method))
+	// Add all original arguments (they will be properly escaped)
+	for _, arg := range originalArgs {
+		args = append(args, shellEscape(arg))
 	}
 
-	// Add headers
-	for _, header := range headers {
-		args = append(args, "-H", shellEscape(header))
-	}
-
-	// Add data
-	if data != "" {
-		args = append(args, "-d", shellEscape(data))
-	} else if dataAscii != "" {
-		args = append(args, "--data-ascii", shellEscape(dataAscii))
-	} else if dataBinary != "" {
-		args = append(args, "--data-binary", shellEscape(dataBinary))
-	}
-
-	// Add form data
-	for _, formItem := range form {
-		args = append(args, "-F", shellEscape(formItem))
-	}
-
-	// Add verbose flag
-	if verbose {
-		args = append(args, "-v")
-	}
-
-	// Add insecure flag
-	if insecure {
-		args = append(args, "-k")
-	}
-
-	// Add user authentication
-	if user != "" {
-		args = append(args, "-u", shellEscape(user))
-	}
-
-	// Add timeout
-	if timeout > 0 {
-		args = append(args, "-m", fmt.Sprintf("%d", timeout))
-	}
-
-	// Add follow redirects
-	if followRedirects {
-		args = append(args, "-L")
-	}
-
-	// Add max redirects
-	if maxRedirects >= 0 {
-		args = append(args, "--max-redirs", fmt.Sprintf("%d", maxRedirects))
-	}
-
-	// Add user agent
-	if userAgent != "" {
-		args = append(args, "-A", shellEscape(userAgent))
-	}
-
-	// Add output file
-	if output != "" {
-		args = append(args, "-o", shellEscape(output))
-	}
-
-	// Add include headers
-	if includeHeaders {
-		args = append(args, "-i")
-	}
-
-	// Add head (only headers)
-	if onlyHeaders {
-		args = append(args, "-I")
-	}
-
-	// Add the URL
-	args = append(args, shellEscape(url))
+	// Add the new local URL
+	args = append(args, shellEscape(newURL))
 
 	return strings.Join(args, " ")
+}
+
+// Helper functions to extract specific flags from arguments for fallback HTTP client
+func extractMethod(args []string) string {
+	for i, arg := range args {
+		if arg == "-X" || arg == "--request" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		// Handle -X=method format
+		if strings.HasPrefix(arg, "-X=") || strings.HasPrefix(arg, "--request=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				return parts[1]
+			}
+		}
+	}
+	return "GET" // default
+}
+
+func extractHeaders(args []string) []string {
+	var headers []string
+	for i, arg := range args {
+		if arg == "-H" || arg == "--header" {
+			if i+1 < len(args) {
+				headers = append(headers, args[i+1])
+			}
+		}
+		// Handle -H=header format
+		if strings.HasPrefix(arg, "-H=") || strings.HasPrefix(arg, "--header=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				headers = append(headers, parts[1])
+			}
+		}
+	}
+	return headers
+}
+
+func extractData(args []string) (string, string, string) {
+	var data, dataAscii, dataBinary string
+	for i, arg := range args {
+		if arg == "-d" || arg == "--data" {
+			if i+1 < len(args) {
+				data = args[i+1]
+			}
+		} else if arg == "--data-ascii" {
+			if i+1 < len(args) {
+				dataAscii = args[i+1]
+			}
+		} else if arg == "--data-binary" {
+			if i+1 < len(args) {
+				dataBinary = args[i+1]
+			}
+		}
+		// Handle = format
+		if strings.HasPrefix(arg, "-d=") || strings.HasPrefix(arg, "--data=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				data = parts[1]
+			}
+		} else if strings.HasPrefix(arg, "--data-ascii=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				dataAscii = parts[1]
+			}
+		} else if strings.HasPrefix(arg, "--data-binary=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				dataBinary = parts[1]
+			}
+		}
+	}
+	return data, dataAscii, dataBinary
+}
+
+func extractForm(args []string) []string {
+	var forms []string
+	for i, arg := range args {
+		if arg == "-F" || arg == "--form" {
+			if i+1 < len(args) {
+				forms = append(forms, args[i+1])
+			}
+		}
+		// Handle = format
+		if strings.HasPrefix(arg, "-F=") || strings.HasPrefix(arg, "--form=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				forms = append(forms, parts[1])
+			}
+		}
+	}
+	return forms
+}
+
+func extractUser(args []string) string {
+	for i, arg := range args {
+		if arg == "-u" || arg == "--user" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		// Handle = format
+		if strings.HasPrefix(arg, "-u=") || strings.HasPrefix(arg, "--user=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				return parts[1]
+			}
+		}
+	}
+	return ""
+}
+
+func extractTimeout(args []string) int {
+	for i, arg := range args {
+		if arg == "-m" || arg == "--max-time" {
+			if i+1 < len(args) {
+				if timeout, err := strconv.Atoi(args[i+1]); err == nil {
+					return timeout
+				}
+			}
+		}
+		// Handle = format
+		if strings.HasPrefix(arg, "-m=") || strings.HasPrefix(arg, "--max-time=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				if timeout, err := strconv.Atoi(parts[1]); err == nil {
+					return timeout
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func extractUserAgent(args []string) string {
+	for i, arg := range args {
+		if arg == "-A" || arg == "--user-agent" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		// Handle = format
+		if strings.HasPrefix(arg, "-A=") || strings.HasPrefix(arg, "--user-agent=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				return parts[1]
+			}
+		}
+	}
+	return ""
 }
 
 // shellEscape escapes a string for use in a shell command
