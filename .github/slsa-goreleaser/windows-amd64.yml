@@ -1,0 +1,6 @@
+version: 1
+env:
+  - GO111MODULE=on
+goos: windows
+goarch: amd64
+binary: kurl-{{ .Os }}-{{ .Arch }}
