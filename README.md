@@ -1,4 +1,4 @@
-# kurl - Kubernetes URL Tool
+# kurl - curl into kubernetes endpoints.
 
 kurl is a command-line tool that allows you to make HTTP requests to Kubernetes services and pods using their internal DNS names, by automatically setting up port forwarding.
 
