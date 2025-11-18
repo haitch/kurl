@@ -82,7 +82,7 @@ func parseKubernetesServiceURL(rawURL string) (*forwardTarget, error) {
 	resourceName := parts[0]
 	namespace := parts[1]
 	var kind resourceType
-	if parts[2] == "svc" {
+	if parts[2] == "svc" || parts[2] == "service" {
 		kind = resourceTypeSvc
 	} else if parts[2] == "pod" {
 		kind = resourceTypePod
@@ -95,7 +95,7 @@ func parseKubernetesServiceURL(rawURL string) (*forwardTarget, error) {
 	} else if parts[2] == "rs" || parts[2] == "replicaset" {
 		kind = resourceTypeReplicaSet
 	} else {
-		return nil, fmt.Errorf("unsupported resource type: %s (supported: svc, pod, deploy, deployment, sts, statefulset, ds, daemonset, rs, replicaset)", parts[2])
+		return nil, fmt.Errorf("unsupported resource type: %s (supported: svc/service, pod, deploy/deployment, sts/statefulset, ds/daemonset, rs/replicaset)", parts[2])
 	}
 
 	// Basic validation for service name and namespace
