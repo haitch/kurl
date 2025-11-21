@@ -57,7 +57,14 @@ func parseKubernetesServiceURL(rawURL string) (*forwardTarget, error) {
 
 	parts := strings.Split(host, ".")
 
-	if len(parts) < 3 {
+	switch len(parts) {
+	case 3:
+		// service.namespace.svc
+		// valid
+	case 1:
+		// service name only. Assume default namespace and svc
+		parts = append(parts, "default", "svc")
+	default:
 		return nil, fmt.Errorf("invalid Kubernetes service URL format: %s", rawURL)
 	}
 
