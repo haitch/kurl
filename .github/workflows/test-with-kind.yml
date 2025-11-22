@@ -44,7 +44,20 @@ jobs:
         go mod tidy
         go build -o kurl *.go
 
-    - name: Run specific kurl tests
+    - name: Run kurl tests
       run: |
+        # Positive tests - accessing existing services
         ./kurl -v http://nginx-service.kurltest.svc 
         ./kurl -v http://nginx-deployment.kurltest.deploy 
+
+        # Negative tests - accessing non-existent resources
+        echo "Testing non-existent service:"
+        ./kurl http://nonexistent-service.default.svc 2>&1 | grep -q "failed to get service" && echo "PASS: Non-existent service properly handled" || echo "FAIL: Non-existent service should fail but didn't"
+
+        echo "Testing invalid resource type:"
+        ./kurl http://nginx-service.kurltest.invalid 2>&1 | grep -q "unsupported resource type" && echo "PASS: Invalid resource type properly handled" || echo "FAIL: Invalid resource type should fail but didn't"
+
+        echo "Testing malformed URL:"
+        ./kurl http://invalid-url 2>&1 | grep -q "invalid Kubernetes service URL format" && echo "PASS: Malformed URL properly handled" || echo "FAIL: Malformed URL should fail but didn't"
+
+        echo "All negative tests completed"
