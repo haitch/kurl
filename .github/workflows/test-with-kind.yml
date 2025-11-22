@@ -24,7 +24,7 @@ jobs:
         cache: true
 
     - name: Create kind cluster
-      uses: helm/kind-action@v1.8.0
+      uses: helm/kind-action@v1.13.0
 
     - name: Wait for cluster readiness
       run: |
@@ -46,5 +46,5 @@ jobs:
 
     - name: Run specific kurl tests
       run: |
-        ./kurl http://nginx-service.kurltest.svc 
-        ./kurl http://nginx-service.kurltest.deploy 
+        ./kurl -v http://nginx-service.kurltest.svc 
+        ./kurl -v http://nginx-deployment.kurltest.deploy 
