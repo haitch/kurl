@@ -1,4 +1,4 @@
-name: Test with kind (Kubernetes in Docker)
+name: unittest
 
 on:
   push:
@@ -10,8 +10,8 @@ env:
   GO_VERSION: '1.25'
 
 jobs:
-  test-with-kind:
-    name: Run tests with kind cluster
+  unittest:
+    name: Run tests
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -26,4 +26,4 @@ jobs:
     - name: Build
       run: |
         go mod tidy
-        go test ./...
+        go test -race ./...

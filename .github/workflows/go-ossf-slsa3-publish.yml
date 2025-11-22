@@ -13,7 +13,6 @@
 
 name: SLSA Go releaser
 on:
-  pull_request:
   workflow_dispatch:
   release:
     types: [created]
