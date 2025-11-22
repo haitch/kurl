@@ -1,0 +1,58 @@
+name: Test with kind (Kubernetes in Docker)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  test-with-kind:
+    name: Run tests with kind cluster
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Create kind cluster
+      uses: helm/kind-action@v1.8.0
+      with:
+        cluster_name: kurl-test-cluster
+        config: |
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+          - role: control-plane
+
+    - name: Wait for cluster readiness
+      run: |
+        kubectl cluster-info --context kind-kurl-test-cluster
+        kubectl wait --for=condition=Ready node/kurl-test-cluster-control-plane --timeout=120s
+        kubectl get nodes
+        kubectl get pods --all-namespaces
+
+    - name: Deploy test resources
+      run: |
+        kubectl create ns kurltest
+        kubectl apply -f tests/nginx-deployment.yaml || echo "No test resources to apply or file not found"
+        # Apply any test resources if they exist
+        kubectl get all --all-namespaces
+
+    - name: Build
+      run: |
+        go mod tidy
+        go build -o kurl *.go
+
+    - name: Run specific kurl tests
+      run: |
+        ./kurl http://nginx-service.kurltest.svc 
+        ./kurl http://nginx-service.kurltest.deploy 
