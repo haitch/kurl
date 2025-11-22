@@ -25,18 +25,10 @@ jobs:
 
     - name: Create kind cluster
       uses: helm/kind-action@v1.8.0
-      with:
-        cluster_name: kurl-test-cluster
-        config: |
-          kind: Cluster
-          apiVersion: kind.x-k8s.io/v1alpha4
-          nodes:
-          - role: control-plane
 
     - name: Wait for cluster readiness
       run: |
-        kubectl cluster-info --context kind-kurl-test-cluster
-        kubectl wait --for=condition=Ready node/kurl-test-cluster-control-plane --timeout=120s
+        kubectl cluster-info
         kubectl get nodes
         kubectl get pods --all-namespaces
 
